@@ -8,8 +8,10 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- =====================================================
 -- 1. USERS TABLE
 -- =====================================================
+-- Not: Bu tablo auth.users ile senkronize çalışır
+-- Trigger ile otomatik doldurulur (003_auto_create_user_profile.sql)
 CREATE TABLE users (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT UNIQUE NOT NULL,
   full_name TEXT,
   avatar_url TEXT,

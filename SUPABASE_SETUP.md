@@ -14,7 +14,17 @@ Bu dosya, Supabase veritabanını kurmak için adım adım talimatlar içerir.
 
 ## 📋 Adım 2: Migration Dosyalarını Çalıştır
 
-### 2.1. İlk Schema (Tablolar)
+**ÖNEMLİ:** Migration dosyalarını sırayla çalıştırmalısınız!
+
+### 2.1. PostGIS Extension (Opsiyonel - Konum Servisleri İçin)
+
+1. SQL Editor'de **New Query** butonuna tıkla
+2. `supabase/migrations/000_enable_postgis.sql` dosyasının içeriğini kopyala
+3. SQL Editor'e yapıştır
+4. **Run** butonuna tıkla
+5. ✅ Başarılı olduğunu doğrula
+
+### 2.2. İlk Schema (Tablolar)
 
 1. SQL Editor'de **New Query** butonuna tıkla
 2. `supabase/migrations/001_initial_schema.sql` dosyasının içeriğini kopyala
@@ -22,7 +32,7 @@ Bu dosya, Supabase veritabanını kurmak için adım adım talimatlar içerir.
 4. **Run** butonuna tıkla
 5. ✅ "Success. No rows returned" mesajını gör
 
-### 2.2. Row Level Security (Güvenlik)
+### 2.3. Row Level Security (Güvenlik)
 
 1. Yeni bir query aç
 2. `supabase/migrations/002_row_level_security.sql` dosyasını kopyala
@@ -30,7 +40,17 @@ Bu dosya, Supabase veritabanını kurmak için adım adım talimatlar içerir.
 4. **Run** butonuna tıkla
 5. ✅ Başarılı olduğunu doğrula
 
-### 2.3. Test Verileri (Opsiyonel)
+### 2.4. Otomatik User Profile Trigger 🆕
+
+1. Yeni bir query aç
+2. `supabase/migrations/003_auto_create_user_profile.sql` dosyasını kopyala
+3. SQL Editor'e yapıştır
+4. **Run** butonuna tıkla
+5. ✅ Başarılı olduğunu doğrula
+
+**Ne yapar?** Yeni kullanıcı kayıt olduğunda, otomatik olarak `public.users` tablosuna profil oluşturur. Manuel insert'e gerek kalmaz! 🎉
+
+### 2.5. Test Verileri (Opsiyonel)
 
 1. Yeni bir query aç
 2. `supabase/seed.sql` dosyasını kopyala
@@ -118,7 +138,20 @@ Uygulama başarıyla çalışıyorsa:
 
 ### Hata: "Row Level Security policy violation"
 - RLS migration dosyasını çalıştırdığından emin ol
-- Supabase Auth ile giriş yapmadan önce `anon` politikalarını kontrol et
+- **ÖNEMLİ:** `003_auto_create_user_profile.sql` trigger dosyasını çalıştırdığından emin ol
+- Trigger çalışmazsa, users tablosuna manuel insert yapamazsın
+
+### Hata: "Users tablosuna kayıt eklenmiyor"
+- `003_auto_create_user_profile.sql` trigger'ını çalıştır
+- Trigger sayesinde auth.users'a kayıt eklendiğinde otomatik olarak public.users'a da eklenir
+
+### Email Confirmation Ayarları
+Supabase'de email confirmation varsayılan olarak **AÇIK**tır. Test için kapatabilirsin:
+
+1. Supabase Dashboard → **Authentication** → **Settings**
+2. "Email Confirmations" bölümünü bul
+3. **Disable** et (sadece geliştirme için!)
+4. Production'da mutlaka AÇIK tut!
 
 ---
 

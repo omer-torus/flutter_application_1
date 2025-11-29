@@ -127,6 +127,7 @@ class AuthRepositoryImpl implements AuthRepository {
       final response = await _supabase.auth.signUp(
         email: email,
         password: password,
+        data: fullName != null ? {'full_name': fullName} : null,
       );
 
       if (response.user == null) {
@@ -135,17 +136,9 @@ class AuthRepositoryImpl implements AuthRepository {
 
       final userId = response.user!.id;
 
-      // users tablosuna kullanıcı bilgilerini ekle
-      try {
-        await _supabase.from('users').insert({
-          'id': userId,
-          'email': email,
-          'full_name': fullName,
-        });
-      } catch (e) {
-        // Kullanıcı zaten varsa veya başka bir hata varsa
-        // Auth başarılı olduğu için devam et
-      }
+      // Trigger otomatik olarak users tablosuna ekleyecek
+      // Kısa bir gecikme sonra user profilini al
+      await Future.delayed(const Duration(milliseconds: 500));
 
       final userResponse = await _supabase
           .from('users')
