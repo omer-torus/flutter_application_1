@@ -15,6 +15,11 @@ class AppEnv {
     'GOOGLE_PLACES_KEY',
     defaultValue: 'google-places-key',
   );
+
+  static const ticketmasterApiKey = String.fromEnvironment(
+    'TICKETMASTER_API_KEY',
+    defaultValue: 'ticketmaster-api-key',
+  );
 }
 
 

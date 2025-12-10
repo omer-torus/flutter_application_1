@@ -45,5 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	
+	<!-- Location permissions -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Yakınınızdaki mekanları göstermek için konumunuza ihtiyacımız var</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Yakınınızdaki mekanları göstermek için konumunuza ihtiyacımız var</string>
 </dict>
 </plist>

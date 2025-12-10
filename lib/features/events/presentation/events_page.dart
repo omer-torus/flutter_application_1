@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
+import '../../../app/providers.dart';
+import '../../guides/presentation/guides_page.dart';
 import '../../home/presentation/home_page.dart';
 import '../../map/presentation/map_page.dart';
-import '../../guides/presentation/guides_page.dart';
 import '../../profile/presentation/profile_page.dart';
+import '../application/event_controller.dart';
+import '../application/event_state.dart';
+import '../domain/entities/event_entity.dart';
 
 class EventsPage extends ConsumerStatefulWidget {
   const EventsPage({super.key});
@@ -15,6 +20,12 @@ class EventsPage extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<EventsPage> createState() => _EventsPageState();
+}
+
+String _formatDate(DateTime? date) {
+  if (date == null) return 'Tarihi duyurulacak';
+  final formatter = DateFormat('d MMM yyyy', 'tr');
+  return formatter.format(date);
 }
 
 class _EventsPageState extends ConsumerState<EventsPage> {
@@ -28,8 +39,83 @@ class _EventsPageState extends ConsumerState<EventsPage> {
     'Sergiler',
   ];
 
+  // Varsayılan koordinatlar (İstanbul)
+  static const double _defaultLat = 41.0082;
+  static const double _defaultLng = 28.9784;
+
+  double? _userLat;
+  double? _userLng;
+  bool _isLoadingLocation = false;
+  String? _locationError;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeLocation();
+    });
+  }
+
+  Future<void> _initializeLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
+      _locationError = null;
+    });
+
+    try {
+      final locationService = ref.read(locationServiceProvider);
+      final position = await locationService.getCurrentLocation();
+
+      if (mounted) {
+        if (position != null) {
+          _userLat = position.latitude;
+          _userLng = position.longitude;
+          _locationError = null;
+        } else {
+          _locationError = 'Konum alınamadı, İstanbul gösteriliyor';
+        }
+        _isLoadingLocation = false;
+      }
+    } catch (e) {
+      if (mounted) {
+        _locationError = 'Konum hatası: ${e.toString()}';
+        _isLoadingLocation = false;
+      }
+    }
+
+    _loadEvents();
+  }
+
+  void _loadEvents() {
+    final categories = _mapCategories(_selectedCategory);
+    final lat = _userLat ?? _defaultLat;
+    final lng = _userLng ?? _defaultLng;
+
+    ref.read(eventControllerProvider.notifier).loadEvents(
+          latitude: lat,
+          longitude: lng,
+          categories: categories,
+        );
+  }
+
+  List<String> _mapCategories(String category) {
+    switch (category) {
+      case 'Konserler':
+        return ['Music'];
+      case 'Festivaller':
+        return ['Festival'];
+      case 'Sergiler':
+        return ['Arts & Theatre'];
+      default:
+        return [];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final eventState = ref.watch(eventControllerProvider);
+    final events = eventState.events;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -64,6 +150,7 @@ class _EventsPageState extends ConsumerState<EventsPage> {
                                 setState(() {
                                   _selectedCategory = category;
                                 });
+                                _loadEvents();
                               },
                               selectedColor: const Color(0xFF4DB6AC),
                               labelStyle: TextStyle(
@@ -93,8 +180,10 @@ class _EventsPageState extends ConsumerState<EventsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _buildLocationStatus(),
+                    const SizedBox(height: 16),
                     // Öne Çıkan Etkinlik
-                    _FeaturedEventCard(),
+                    _FeaturedEventCard(event: events.isNotEmpty ? events.first : null),
                     const SizedBox(height: 24),
                     
                     // Yaklaşan Etkinlikler
@@ -114,7 +203,7 @@ class _EventsPageState extends ConsumerState<EventsPage> {
                     const SizedBox(height: 16),
                     
                     // Yaklaşan Etkinlik Listesi
-                    _buildUpcomingEventsList(),
+                    _buildUpcomingEventsList(eventState),
                     const SizedBox(height: 24),
                     
                     // Bu Hafta
@@ -128,7 +217,7 @@ class _EventsPageState extends ConsumerState<EventsPage> {
                     const SizedBox(height: 16),
                     
                     // Bu Hafta Etkinlikleri (Grid)
-                    _buildThisWeekEvents(),
+                    _buildThisWeekEvents(events),
                   ],
                 ),
               ),
@@ -140,7 +229,47 @@ class _EventsPageState extends ConsumerState<EventsPage> {
     );
   }
 
-  Widget _FeaturedEventCard() {
+  Widget _buildLocationStatus() {
+    return Row(
+      children: [
+        Icon(
+          _isLoadingLocation
+              ? Icons.location_searching
+              : _locationError != null
+                  ? Icons.location_off
+                  : Icons.location_on,
+          color: _isLoadingLocation
+              ? Colors.orange
+              : _locationError != null
+                  ? Colors.red
+                  : Colors.green,
+          size: 18,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _isLoadingLocation
+                ? 'Konum alınıyor...'
+                : _locationError ?? 'Konumunuza göre etkinlikleri listeliyoruz',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.grey[600],
+                ),
+          ),
+        ),
+        if (_locationError != null)
+          TextButton.icon(
+            onPressed: _initializeLocation,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Tekrar Dene'),
+          ),
+      ],
+    );
+  }
+
+  Widget _FeaturedEventCard({EventEntity? event}) {
+    final imageUrl = event?.imageUrl ??
+        'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=400';
+
     return Container(
       height: 280,
       decoration: BoxDecoration(
@@ -155,7 +284,6 @@ class _EventsPageState extends ConsumerState<EventsPage> {
       ),
       child: Stack(
         children: [
-          // Arka plan görseli
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: Container(
@@ -163,18 +291,17 @@ class _EventsPageState extends ConsumerState<EventsPage> {
               height: double.infinity,
               color: Colors.grey[300],
               child: Image.network(
-                'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=400',
+                imageUrl,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
                     color: Colors.grey[300],
-                    child: const Icon(Icons.music_note, size: 50, color: Colors.grey),
+                    child: const Icon(Icons.event, size: 50, color: Colors.grey),
                   );
                 },
               ),
             ),
           ),
-          // Gradient overlay
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
@@ -188,14 +315,12 @@ class _EventsPageState extends ConsumerState<EventsPage> {
               ),
             ),
           ),
-          // İçerik
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Öne Çıkan etiketi
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
@@ -217,16 +342,17 @@ class _EventsPageState extends ConsumerState<EventsPage> {
                     ],
                   ),
                 ),
-                // Başlık ve detaylar
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Jazz Festivali 2024',
+                      event?.name ?? 'Yakınınızdaki etkinlikler',
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -234,16 +360,16 @@ class _EventsPageState extends ConsumerState<EventsPage> {
                         const Icon(Icons.calendar_today, color: Colors.white, size: 18),
                         const SizedBox(width: 6),
                         Text(
-                          '25 Kasım 2024',
+                          _formatDate(event?.startDate),
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: Colors.white,
                               ),
                         ),
                         const SizedBox(width: 16),
-                        const Icon(Icons.access_time, color: Colors.white, size: 18),
+                        const Icon(Icons.location_on, color: Colors.white, size: 18),
                         const SizedBox(width: 6),
                         Text(
-                          '19:00',
+                          event != null ? '${event.city}, ${event.country}' : 'Konumunuza göre',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: Colors.white,
                               ),
@@ -252,11 +378,10 @@ class _EventsPageState extends ConsumerState<EventsPage> {
                     ),
                   ],
                 ),
-                // Detayları Gör butonu
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton(
-                    onPressed: () {},
+                    onPressed: event?.url != null ? () {} : null,
                     style: OutlinedButton.styleFrom(
                       backgroundColor: Colors.white,
                       side: BorderSide.none,
@@ -266,7 +391,7 @@ class _EventsPageState extends ConsumerState<EventsPage> {
                       ),
                     ),
                     child: Text(
-                      'Detayları Gör',
+                      event?.url != null ? 'Detayları Gör' : 'Etkinlikleri keşfet',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: const Color(0xFF212121),
                             fontWeight: FontWeight.w600,
@@ -282,62 +407,74 @@ class _EventsPageState extends ConsumerState<EventsPage> {
     );
   }
 
-  Widget _buildUpcomingEventsList() {
-    final events = [
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=400',
-        'category': 'Festivaller',
-        'title': 'Uluslararası Film Festivali',
-        'date': '1-10 Aralık 2024',
-        'location': 'Kadıköy Sineması',
-        'price': '₺100-350',
-      },
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=400',
-        'category': 'Sergiler',
-        'title': 'Modern Sanat Sergisi',
-        'date': '20 Kasım - 5 Aralık',
-        'location': 'İstanbul Modern',
-        'price': '₺75',
-      },
-    ];
+  Widget _buildUpcomingEventsList(EventState state) {
+    if (state.status == EventStatus.loading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (state.status == EventStatus.failure) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const Icon(Icons.error_outline, size: 40, color: Colors.red),
+              const SizedBox(height: 12),
+              Text(
+                'Etkinlikler yüklenemedi',
+                style: TextStyle(color: Colors.grey[700]),
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: _loadEvents,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Tekrar Dene'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (state.events.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            const Icon(Icons.event_busy, size: 40, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              'Seçili kategoride etkinlik bulunamadı',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final List<EventEntity> upcoming = state.events.take(5).toList();
 
     return Column(
-      children: events.map((event) {
+      children: upcoming.map<Widget>((event) {
         return Padding(
           padding: const EdgeInsets.only(bottom: 16),
-          child: _UpcomingEventCard(
-            imageUrl: event['imageUrl'] as String,
-            category: event['category'] as String,
-            title: event['title'] as String,
-            date: event['date'] as String,
-            location: event['location'] as String,
-            price: event['price'] as String,
-          ),
+          child: _UpcomingEventCard(event: event),
         );
       }).toList(),
     );
   }
 
-  Widget _buildThisWeekEvents() {
-    final events = [
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=400',
-        'title': 'Jazz Festivali 2024',
-        'interested': 120,
-      },
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=400',
-        'title': 'Uluslararası Film Festivali',
-        'interested': 150,
-      },
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=400',
-        'title': 'Modern Sanat Sergisi',
-        'interested': 180,
-      },
-    ];
+  Widget _buildThisWeekEvents(List<EventEntity> events) {
+    if (events.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
+    final List<EventEntity> gridEvents = events.skip(1).take(6).toList();
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -347,14 +484,10 @@ class _EventsPageState extends ConsumerState<EventsPage> {
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
-      itemCount: events.length,
+      itemCount: gridEvents.length,
       itemBuilder: (context, index) {
-        final event = events[index];
-        return _ThisWeekEventCard(
-          imageUrl: event['imageUrl'] as String,
-          title: event['title'] as String,
-          interested: event['interested'] as int,
-        );
+        final event = gridEvents[index];
+        return _ThisWeekEventCard(event: event);
       },
     );
   }
@@ -415,24 +548,15 @@ class _EventsPageState extends ConsumerState<EventsPage> {
 }
 
 class _UpcomingEventCard extends StatelessWidget {
-  final String imageUrl;
-  final String category;
-  final String title;
-  final String date;
-  final String location;
-  final String price;
+  final EventEntity event;
 
-  const _UpcomingEventCard({
-    required this.imageUrl,
-    required this.category,
-    required this.title,
-    required this.date,
-    required this.location,
-    required this.price,
-  });
+  const _UpcomingEventCard({required this.event});
 
   @override
   Widget build(BuildContext context) {
+    final imageUrl = event.imageUrl ??
+        'https://images.unsplash.com/photo-1489515217757-5fd1be406fef?w=400';
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -442,7 +566,6 @@ class _UpcomingEventCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Thumbnail
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: Container(
@@ -462,12 +585,10 @@ class _UpcomingEventCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // İçerik
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Kategori etiketi
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -475,7 +596,7 @@ class _UpcomingEventCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    category,
+                    event.category,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.grey[700],
                           fontWeight: FontWeight.w500,
@@ -483,9 +604,8 @@ class _UpcomingEventCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                // Başlık
                 Text(
-                  title,
+                  event.name,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: const Color(0xFF212121),
@@ -494,13 +614,12 @@ class _UpcomingEventCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 8),
-                // Tarih
                 Row(
                   children: [
                     const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
                     const SizedBox(width: 4),
                     Text(
-                      date,
+                      _formatDate(event.startDate),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Colors.grey[600],
                           ),
@@ -508,14 +627,13 @@ class _UpcomingEventCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
-                // Konum
                 Row(
                   children: [
                     const Icon(Icons.location_on, size: 14, color: Colors.grey),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        location,
+                        '${event.venueName} • ${event.city}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.grey[600],
                             ),
@@ -526,9 +644,8 @@ class _UpcomingEventCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                // Fiyat
                 Text(
-                  price,
+                  event.priceRange ?? 'Fiyat bilgisi yakında',
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: const Color(0xFF4DB6AC),
                         fontWeight: FontWeight.bold,
@@ -544,18 +661,14 @@ class _UpcomingEventCard extends StatelessWidget {
 }
 
 class _ThisWeekEventCard extends StatelessWidget {
-  final String imageUrl;
-  final String title;
-  final int interested;
+  final EventEntity event;
 
-  const _ThisWeekEventCard({
-    required this.imageUrl,
-    required this.title,
-    required this.interested,
-  });
+  const _ThisWeekEventCard({required this.event});
 
   @override
   Widget build(BuildContext context) {
+    final imageUrl = event.imageUrl ??
+        'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=400';
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
@@ -602,7 +715,7 @@ class _ThisWeekEventCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    title,
+                    event.name,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: const Color(0xFF212121),
@@ -612,10 +725,10 @@ class _ThisWeekEventCard extends StatelessWidget {
                   ),
                   Row(
                     children: [
-                      const Icon(Icons.people, size: 14, color: Colors.grey),
+                      const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
                       const SizedBox(width: 4),
                       Text(
-                        '$interested+ kişi ilgileniyor',
+                        _formatDate(event.startDate),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.grey[600],
                             ),

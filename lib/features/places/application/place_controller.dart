@@ -33,10 +33,10 @@ class PlaceController extends StateNotifier<PlaceState> {
 }
 
 final placeRepositoryProvider = Provider<PlaceRepository>((ref) {
-  final googlePlaces = ref.watch(googlePlacesServiceProvider);
+  final overpass = ref.watch(overpassServiceProvider);
   final cache = ref.watch(supabaseCacheServiceProvider);
   return PlaceRepositoryImpl(
-    googlePlacesService: googlePlaces,
+    overpassService: overpass,
     cacheService: cache,
   );
 });

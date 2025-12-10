@@ -62,3 +62,5 @@ CREATE TRIGGER on_auth_user_updated
   )
   EXECUTE FUNCTION public.handle_user_update();
 
+
+

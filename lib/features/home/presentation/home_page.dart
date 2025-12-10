@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/providers.dart';
 import '../../routes/presentation/route_planner_page.dart';
 import '../../guides/presentation/guides_page.dart';
 import '../../map/presentation/map_page.dart';
 import '../../profile/presentation/profile_page.dart';
+import '../../places/application/place_controller.dart';
+import '../../places/application/place_state.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -31,6 +35,103 @@ class _HomePageState extends ConsumerState<HomePage> {
     'Doğa',
   ];
 
+  // İstanbul merkez koordinatları (fallback)
+  static const double _defaultLat = 41.0082;
+  static const double _defaultLng = 28.9784;
+
+  // Kullanıcının gerçek konumu
+  double? _userLat;
+  double? _userLng;
+  bool _isLoadingLocation = false;
+  String? _locationError;
+
+  @override
+  void initState() {
+    super.initState();
+    // İlk yüklemede konumu al ve mekanları getir
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeLocation();
+    });
+  }
+
+  /// Konumu al ve mekanları yükle
+  Future<void> _initializeLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
+      _locationError = null;
+    });
+
+    try {
+      // Konum servisini al
+      final locationService = ref.read(locationServiceProvider);
+
+      // Kullanıcının konumunu al
+      final position = await locationService.getCurrentLocation();
+
+      if (position != null && mounted) {
+        setState(() {
+          _userLat = position.latitude;
+          _userLng = position.longitude;
+          _isLoadingLocation = false;
+        });
+
+        // Gerçek konuma göre mekanları yükle
+        _loadPlaces();
+      } else {
+        // Konum alınamadı, varsayılan koordinatları kullan
+        if (mounted) {
+          setState(() {
+            _isLoadingLocation = false;
+            _locationError = 'Konum alınamadı, İstanbul gösteriliyor';
+          });
+        }
+        _loadPlaces(); // Varsayılan koordinatlarla yükle
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingLocation = false;
+          _locationError = 'Konum hatası: ${e.toString()}';
+        });
+      }
+      _loadPlaces(); // Varsayılan koordinatlarla yükle
+    }
+  }
+
+  void _loadPlaces() {
+    final categories = _getCategoriesForFilter(_selectedCategory);
+    
+    // Kullanıcının gerçek konumunu kullan, yoksa varsayılan
+    final lat = _userLat ?? _defaultLat;
+    final lng = _userLng ?? _defaultLng;
+
+    ref.read(placeControllerProvider.notifier).loadNearby(
+          latitude: lat,
+          longitude: lng,
+          categories: categories,
+          forceRefresh: false,
+        );
+  }
+
+  List<String> _getCategoriesForFilter(String category) {
+    switch (category) {
+      case 'Müzeler':
+        return ['museum'];
+      case 'Tarihi Yerler':
+        return ['historic', 'monument', 'castle'];
+      case 'Kafeler':
+        return ['cafe'];
+      case 'Alışveriş':
+        return ['shopping'];
+      case 'Yemek':
+        return ['restaurant'];
+      case 'Doğa':
+        return ['park', 'beach'];
+      default:
+        return []; // Hepsi
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -53,11 +154,42 @@ class _HomePageState extends ConsumerState<HomePage> {
                         ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    'Konumunuza göre akıllı öneriler',
+                  Row(
+                    children: [
+                      Icon(
+                        _isLoadingLocation 
+                            ? Icons.location_searching 
+                            : _locationError != null 
+                                ? Icons.location_off 
+                                : Icons.location_on,
+                        size: 16,
+                        color: _isLoadingLocation 
+                            ? Colors.orange 
+                            : _locationError != null 
+                                ? Colors.red 
+                                : Colors.green,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          _isLoadingLocation 
+                              ? 'Konum alınıyor...'
+                              : _locationError ?? 'Konumunuza göre akıllı öneriler',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Colors.grey[600],
                         ),
+                        ),
+                      ),
+                      if (_locationError != null)
+                        TextButton.icon(
+                          onPressed: _initializeLocation,
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: const Text('Tekrar Dene'),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   
@@ -99,6 +231,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                               setState(() {
                                 _selectedCategory = category;
                               });
+                              // Kategori değiştiğinde yeniden yükle
+                              _loadPlaces();
                             },
                             selectedColor: const Color(0xFF4DB6AC),
                             labelStyle: TextStyle(
@@ -348,57 +482,147 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildPlaceList() {
-    final places = [
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1555993539-5d4e8e0e8b8b?w=400',
-        'category': 'Tarihi Yerler',
-        'title': 'Topkapı Sarayı',
-        'description': 'Osmanlı İmparatorluğu\'nun muhteşem sarayı',
-        'rating': 4.8,
-        'distance': 2.3,
-        'price': 200,
-      },
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=400',
-        'category': 'Müzeler',
-        'title': 'Modern Sanat Müzesi',
-        'description': 'Çağdaş sanat eserlerinin sergilendiği özel müze',
-        'rating': 4.6,
-        'distance': 1.8,
-        'price': 200,
-      },
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=400',
-        'category': 'Kafeler',
-        'title': 'Boğaz Cafe',
-        'description': 'Boğaz manzaralı şık kafe',
-        'rating': 4.7,
-        'distance': 0.5,
-        'price': 100,
-      },
-      {
-        'imageUrl': 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=400',
-        'category': 'Alışveriş',
-        'title': 'Kapalıçarşı',
-        'description': 'Dünyanın en eski ve büyük kapalı çarşılarından biri',
-        'rating': 4.5,
-        'distance': 3.1,
-        'price': 0, // Ücretsiz
-      },
-    ];
+    final placesState = ref.watch(placeControllerProvider);
 
+    // Loading state
+    if (placesState.status == PlaceStatus.loading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    // Error state
+    if (placesState.status == PlaceStatus.failure) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            children: [
+              Icon(Icons.error_outline, size: 48, color: Colors.grey[400]),
+              const SizedBox(height: 16),
+              Text(
+                'Mekanlar yüklenemedi',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                placesState.error ?? 'Bilinmeyen hata',
+                style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _loadPlaces,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Tekrar Dene'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF4DB6AC),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Empty state
+    if (placesState.places.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            children: [
+              Icon(Icons.place_outlined, size: 48, color: Colors.grey[400]),
+              const SizedBox(height: 16),
+              Text(
+                'Yakınınızda mekan bulunamadı',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Farklı bir kategori deneyin',
+                style: TextStyle(color: Colors.grey[500], fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _loadPlaces,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Yenile'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF4DB6AC),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Success state - gerçek veriler!
     return Column(
-      children: places.map((place) {
+      children: placesState.places.map((place) {
+        // Kategori isimlerini Türkçeleştir
+        String getCategoryName(String category) {
+          switch (category.toLowerCase()) {
+            case 'museum':
+              return 'Müzeler';
+            case 'historic':
+            case 'monument':
+            case 'castle':
+              return 'Tarihi Yerler';
+            case 'restaurant':
+              return 'Yemek';
+            case 'cafe':
+              return 'Kafeler';
+            case 'shopping':
+            case 'shop':
+              return 'Alışveriş';
+            case 'park':
+            case 'beach':
+            case 'nature':
+              return 'Doğa';
+            case 'hotel':
+            case 'hostel':
+              return 'Konaklama';
+            case 'bar':
+            case 'nightclub':
+              return 'Gece Hayatı';
+            case 'mosque':
+            case 'church':
+              return 'İbadet Yerleri';
+            default:
+              return 'Genel';
+          }
+        }
+
+        // Geolocator ile gerçek mesafe hesapla
+        final currentLat = _userLat ?? _defaultLat;
+        final currentLng = _userLng ?? _defaultLng;
+
+        final distanceInMeters = Geolocator.distanceBetween(
+          currentLat,
+          currentLng,
+          place.latitude,
+          place.longitude,
+        );
+
+        final distance = distanceInMeters / 1000; // km'ye çevir
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 16),
           child: _PlaceCard(
-            imageUrl: place['imageUrl'] as String,
-            category: place['category'] as String,
-            title: place['title'] as String,
-            description: place['description'] as String,
-            rating: place['rating'] as double,
-            distance: place['distance'] as double,
-            price: place['price'] as int,
+            imageUrl: place.images.isNotEmpty 
+                ? place.images.first 
+                : 'https://images.unsplash.com/photo-1555993539-5d4e8e0e8b8b?w=400',
+            category: getCategoryName(place.category),
+            title: place.name,
+            description: place.description ?? 'OpenStreetMap\'ten gelen mekan',
+            rating: place.rating ?? 4.0,
+            distance: double.parse(distance.toStringAsFixed(1)), // Tek ondalık basamak
+            price: 0, // OSM'de fiyat bilgisi yok, varsayılan 0
           ),
         );
       }).toList(),
@@ -613,7 +837,7 @@ class _PlaceCard extends StatelessWidget {
                     const Icon(Icons.location_on, color: Colors.grey, size: 18),
                     const SizedBox(width: 4),
                     Text(
-                      '$distance km',
+                      '${distance.toStringAsFixed(1)} km',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: Colors.grey[600],
                           ),
